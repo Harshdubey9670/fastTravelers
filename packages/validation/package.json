@@ -1,0 +1,19 @@
+{
+  "name": "@gaon-auto/validation",
+  "version": "1.0.0",
+  "description": "Shared Zod validation schemas for Gaon Auto",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@gaon-auto/types": "file:../types",
+    "@gaon-auto/utils": "file:../utils",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.5"
+  }
+}

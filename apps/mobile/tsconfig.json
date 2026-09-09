@@ -1,0 +1,40 @@
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "lib": [
+      "ESNext"
+    ],
+    "allowJs": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "strict": true,
+    "noEmit": true,
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "jsx": "react-native",
+    "paths": {
+      "@gaon-auto/types": [
+        "../../packages/types/src/index.ts"
+      ],
+      "@gaon-auto/config": [
+        "../../packages/config/src/index.ts"
+      ],
+      "@gaon-auto/utils": [
+        "../../packages/utils/src/index.ts"
+      ],
+      "@gaon-auto/api-client": [
+        "../../packages/api-client/src/index.ts"
+      ]
+    }
+  },
+  "include": [
+    "**/*.ts",
+    "**/*.tsx"
+  ],
+  "exclude": [
+    "node_modules"
+  ],
+  "extends": "expo/tsconfig.base"
+}

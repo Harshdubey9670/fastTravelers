@@ -1,0 +1,38 @@
+{
+  "name": "gaon-auto-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Production-grade Village and Small-town Auto/e-Rickshaw Booking Platform for India",
+  "workspaces": [
+    "packages/*",
+    "services/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "dev:api": "npm run dev --workspace=@gaon-auto/api",
+    "dev:admin": "npm run dev --workspace=@gaon-auto/admin",
+    "dev:mobile": "npm run dev --workspace=@gaon-auto/mobile",
+    "lint": "npm run lint --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present"
+  },
+  "keywords": [
+    "auto-rickshaw",
+    "e-rickshaw",
+    "rural-india",
+    "ride-booking",
+    "socket.io",
+    "react-native",
+    "mongodb"
+  ],
+  "author": "Gaon Auto Engineering Team",
+  "license": "UNLICENSED",
+  "devDependencies": {
+    "@types/node": "^26.4.1",
+    "typescript": "^5.4.5"
+  },
+  "dependencies": {
+    "expo-location": "~17.0.1"
+  }
+}

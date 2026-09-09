@@ -1,0 +1,15 @@
+import { defineConfig } from 'vitest/config';
+
+export default defineConfig({
+  test: {
+    include: ['src/**/*.test.ts'],
+    exclude: ['dist/**', 'node_modules/**'],
+    pool: 'forks',
+    poolOptions: {
+      forks: {
+        singleFork: true, // Run test suites sequentially to prevent database collision
+      },
+    },
+    testTimeout: 20000,
+  },
+});

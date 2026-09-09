@@ -1,0 +1,35 @@
+{
+  "name": "@gaon-auto/mobile",
+  "version": "1.0.0",
+  "private": true,
+  "main": "index.js",
+  "scripts": {
+    "start": "expo start",
+    "android": "expo start --android",
+    "ios": "expo start --ios",
+    "web": "expo start --web",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@gaon-auto/api-client": "*",
+    "@gaon-auto/config": "*",
+    "@gaon-auto/types": "*",
+    "@gaon-auto/utils": "*",
+    "expo": "~51.0.28",
+    "expo-location": "~17.0.1",
+    "expo-status-bar": "~1.12.1",
+    "expo-task-manager": "~11.7.2",
+    "lucide-react-native": "^0.383.0",
+    "react": "18.2.0",
+    "react-native": "0.74.5",
+    "react-native-safe-area-context": "4.10.5",
+    "react-native-svg": "15.2.0",
+    "socket.io-client": "^4.7.5",
+    "zustand": "^4.5.2"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.20.0",
+    "@types/react": "~18.2.45",
+    "typescript": "^5.4.5"
+  }
+}
