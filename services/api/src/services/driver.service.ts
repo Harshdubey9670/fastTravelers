@@ -13,6 +13,7 @@ import { socketService } from './socket.service.js';
 import { DriverOnboardingInput } from '@gaon-auto/validation';
 import { DocumentType } from '@gaon-auto/types';
 import { calculateDistanceMeters } from '@gaon-auto/utils';
+import { ENV } from '../config/env.js';
 
 export class DriverService {
   /**
@@ -21,6 +22,11 @@ export class DriverService {
   async onboardDriver(userId: string, input: DriverOnboardingInput) {
     const user = await UserModel.findById(userId);
     if (!user) throw new Error('User not found');
+
+    const initialVerificationStatus =
+      ENV.ALLOW_DEV_AUTO_APPROVE && ENV.NODE_ENV !== 'production'
+        ? 'APPROVED'
+        : 'PENDING';
 
     let driverProfile = await DriverProfileModel.findOne({ userId });
     if (driverProfile && driverProfile.verificationStatus === 'APPROVED') {
@@ -34,7 +40,7 @@ export class DriverService {
         licenceExpiry: input.licenceExpiry ? new Date(input.licenceExpiry) : undefined,
         upiId: input.upiId || undefined,
         operatingAreaId: input.operatingAreaId ? new mongoose.Types.ObjectId(input.operatingAreaId) : undefined,
-        verificationStatus: 'PENDING',
+        verificationStatus: initialVerificationStatus,
         availabilityStatus: 'OFFLINE',
         isOnline: false,
       });
@@ -47,7 +53,7 @@ export class DriverService {
       driverProfile.licenceNumber = input.licenceNumber;
       if (input.licenceExpiry) driverProfile.licenceExpiry = new Date(input.licenceExpiry);
       if (input.upiId) driverProfile.upiId = input.upiId;
-      driverProfile.verificationStatus = 'PENDING';
+      driverProfile.verificationStatus = initialVerificationStatus;
       await driverProfile.save();
     }
 

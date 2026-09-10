@@ -29,6 +29,9 @@ export const ENV = {
   // OpenRouteService API (Step 5)
   OPENROUTESERVICE_API_KEY: process.env.OPENROUTESERVICE_API_KEY || '',
 
+  // Development-only auto-approval flag (disabled by default)
+  ALLOW_DEV_AUTO_APPROVE: process.env.ALLOW_DEV_AUTO_APPROVE === 'true',
+
   // Configurable operational limits
   INITIAL_SEARCH_RADIUS_KM: parseFloat(process.env.INITIAL_SEARCH_RADIUS_KM || '3.0'),
   MAX_SEARCH_RADIUS_KM: parseFloat(process.env.MAX_SEARCH_RADIUS_KM || '10.0'),
@@ -42,6 +45,11 @@ export const ENV = {
 // PRODUCTION SAFETY AUDIT GUARD
 // ==========================================
 if (ENV.NODE_ENV === 'production') {
+  if (ENV.ALLOW_DEV_AUTO_APPROVE) {
+    throw new Error(
+      'FATAL SECURITY ERROR: ALLOW_DEV_AUTO_APPROVE cannot be enabled in production. Driver verification requires manual admin review.'
+    );
+  }
   if (ENV.SMS_PROVIDER === 'MOCK') {
     throw new Error(
       'FATAL CONFIGURATION ERROR: Mock SMS provider cannot be used in production environment. Configure a certified SMS provider (MSG91, FAST2SMS, TWILIO).'
