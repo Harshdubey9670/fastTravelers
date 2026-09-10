@@ -3,8 +3,11 @@ import { Server, Socket } from 'socket.io';
 import jwt from 'jsonwebtoken';
 import { ENV } from '../config/env.js';
 import { ServerToClientEvents, ClientToServerEvents, IRide, IRideOffer, IRideMessage } from '@gaon-auto/types';
+import { isValidCoordinate } from '@gaon-auto/utils';
+import { SYSTEM_CONFIG } from '@gaon-auto/config';
 import { RideModel } from '../models/Ride.js';
 import { DriverProfileModel } from '../models/DriverProfile.js';
+import { DriverLocationModel } from '../models/DriverLocation.js';
 
 interface AuthenticatedSocket extends Socket<ClientToServerEvents, ServerToClientEvents> {
   userId?: string;
@@ -14,6 +17,7 @@ interface AuthenticatedSocket extends Socket<ClientToServerEvents, ServerToClien
 
 export class SocketService {
   private io: Server<ClientToServerEvents, ServerToClientEvents> | null = null;
+  private driverLastUpdateMap = new Map<string, number>();
 
   init(httpServer: HttpServer) {
     this.io = new Server<ClientToServerEvents, ServerToClientEvents>(httpServer, {
@@ -81,9 +85,102 @@ export class SocketService {
           }
 
           socket.join(`ride:${rideId}`);
+
+          // Reconcile and push latest authoritative driver location if active
+          if (
+            ride.driverId &&
+            ['DRIVER_SELECTED', 'DRIVER_EN_ROUTE', 'DRIVER_ARRIVED', 'RIDE_READY', 'RIDE_STARTED'].includes(
+              ride.status
+            )
+          ) {
+            DriverLocationModel.findOne({ driverId: ride.driverId })
+              .lean()
+              .then((latestLoc) => {
+                if (latestLoc && latestLoc.location?.coordinates) {
+                  const [lng, lat] = latestLoc.location.coordinates;
+                  socket.emit('driver:location', {
+                    driverId: ride.driverId!.toString(),
+                    rideId: ride._id.toString(),
+                    latitude: lat,
+                    longitude: lng,
+                    heading: latestLoc.heading,
+                    timestamp: new Date(latestLoc.updatedAt).getTime(),
+                  });
+                }
+              })
+              .catch(() => {});
+          }
+
           return callback({ success: true });
         } catch (err: any) {
           return callback({ success: false, error: err.message });
+        }
+      });
+
+      // Handle driver GPS stream with strict validation, rate limiting & ride-room isolation (Rules 5 & 6)
+      socket.on('driver:update_location', async (data) => {
+        if (socket.userRole !== 'DRIVER' || !socket.driverId) {
+          return;
+        }
+
+        const { latitude, longitude, heading, speed, accuracy, timestamp } = data;
+        if (!isValidCoordinate(latitude, longitude)) {
+          return;
+        }
+
+        const now = Date.now();
+        const ts =
+          typeof timestamp === 'number' && timestamp > 0 && Math.abs(now - timestamp) < 120000
+            ? timestamp
+            : now;
+
+        // Server-side throttle (minimum DRIVER_LOCATION_THROTTLE_MS between updates)
+        const lastUpdate = this.driverLastUpdateMap.get(socket.driverId);
+        if (lastUpdate && now - lastUpdate < SYSTEM_CONFIG.DRIVER_LOCATION_THROTTLE_MS) {
+          return;
+        }
+        this.driverLastUpdateMap.set(socket.driverId, now);
+
+        // Authoritatively persist driver location in DB
+        await DriverLocationModel.findOneAndUpdate(
+          { driverId: socket.driverId },
+          {
+            $set: {
+              'location.coordinates': [longitude, latitude],
+              heading: typeof heading === 'number' ? heading : undefined,
+              speed: typeof speed === 'number' ? speed : undefined,
+              accuracy: typeof accuracy === 'number' ? accuracy : undefined,
+              updatedAt: new Date(ts),
+            },
+          }
+        ).catch(() => {});
+
+        // Find active ride belonging to this driver
+        const activeRide = await RideModel.findOne({
+          driverId: socket.driverId,
+          status: {
+            $in: ['DRIVER_SELECTED', 'DRIVER_EN_ROUTE', 'DRIVER_ARRIVED', 'RIDE_READY', 'RIDE_STARTED'],
+          },
+        });
+
+        // Broadcast ONLY to participants authorized in that ride room
+        if (activeRide) {
+          this.io?.to(`ride:${activeRide._id.toString()}`).emit('driver:location', {
+            driverId: socket.driverId,
+            rideId: activeRide._id.toString(),
+            latitude,
+            longitude,
+            heading,
+            timestamp: ts,
+          });
+
+          this.io?.to(`ride:${activeRide._id.toString()}`).emit('driver:location_updated', {
+            driverId: socket.driverId,
+            latitude,
+            longitude,
+            heading,
+            updatedAt: new Date(ts).toISOString(),
+          });
         }
       });
 
@@ -92,6 +189,9 @@ export class SocketService {
       });
 
       socket.on('disconnect', (reason) => {
+        if (socket.driverId) {
+          this.driverLastUpdateMap.delete(socket.driverId);
+        }
         console.log(`[Socket] Client disconnected: ${socket.id} (Reason: ${reason})`);
       });
     });

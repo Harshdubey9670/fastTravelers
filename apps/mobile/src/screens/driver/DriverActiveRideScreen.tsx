@@ -17,6 +17,7 @@ import { Header } from '../../components/Header';
 import { Card } from '../../components/Card';
 import { Badge } from '../../components/Badge';
 import { NetworkBanner } from '../../components/NetworkBanner';
+import { LiveRideMap } from '../../components/LiveRideMap';
 
 interface DriverActiveRideScreenProps {
   onTripFinished: () => void;
@@ -33,6 +34,12 @@ export const DriverActiveRideScreen: React.FC<DriverActiveRideScreenProps> = ({
     startTrip,
     completeTrip,
     confirmPaymentReceived,
+    driverCurrentLocation,
+    routeStatus,
+    routeCoordinates,
+    roadDistanceMeters,
+    roadDurationSeconds,
+    fetchDriverRoute,
     isLoading,
     error,
     clearError,
@@ -123,6 +130,40 @@ export const DriverActiveRideScreen: React.FC<DriverActiveRideScreenProps> = ({
             </Text>
           </View>
         </View>
+
+        {/* Live Interactive Google Map for Driver (Rules 1, 10, 14) */}
+        <LiveRideMap
+          mode="driver"
+          pickup={
+            activeTrip.pickup?.location?.coordinates && activeTrip.pickup.location.coordinates.length === 2
+              ? {
+                  latitude: activeTrip.pickup.location.coordinates[1],
+                  longitude: activeTrip.pickup.location.coordinates[0],
+                  addressText: activeTrip.pickup.addressText,
+                }
+              : null
+          }
+          destination={
+            activeTrip.destination?.location?.coordinates &&
+            activeTrip.destination.location.coordinates.length === 2 &&
+            typeof activeTrip.destination.location.coordinates[1] === 'number'
+              ? {
+                  latitude: activeTrip.destination.location.coordinates[1],
+                  longitude: activeTrip.destination.location.coordinates[0],
+                  addressText: activeTrip.destination.addressText,
+                }
+              : { addressText: activeTrip.destination?.addressText }
+          }
+          driverLocation={driverCurrentLocation}
+          vehicleType={activeTrip.vehiclePreference || 'AUTO'}
+          routeStatus={routeStatus}
+          routeCoordinates={routeCoordinates}
+          roadDistanceMeters={roadDistanceMeters}
+          roadDurationSeconds={roadDurationSeconds}
+          language={language}
+          height={260}
+          onRefreshRoute={() => fetchDriverRoute(true)}
+        />
 
         {/* Passenger Contact Card */}
         <Card style={styles.passengerCard}>

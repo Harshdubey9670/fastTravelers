@@ -5,7 +5,11 @@ import {
   IRideMessage,
   LocationPayload,
   PaymentMethod,
+  RouteStatus,
+  RouteCoordinate,
 } from '@gaon-auto/types';
+import { decodePolyline, calculateDistanceMeters } from '@gaon-auto/utils';
+import { SYSTEM_CONFIG } from '@gaon-auto/config';
 import { api } from '../services/api';
 import { socketService } from '../services/socket';
 
@@ -13,13 +17,19 @@ interface RideState {
   activeRide: IRide | null;
   offers: IRideOffer[];
   chatMessages: IRideMessage[];
-  driverLocation: { latitude: number; longitude: number; heading?: number } | null;
+  driverLocation: { latitude: number; longitude: number; heading?: number; timestamp?: number } | null;
+  routeStatus: RouteStatus;
+  routeCoordinates: RouteCoordinate[];
+  roadDistanceMeters?: number;
+  roadDurationSeconds?: number;
+  lastRouteOrigin: RouteCoordinate | null;
   isLoading: boolean;
   error: string | null;
   isReconciling: boolean;
 
   // Actions
   reconcileActiveRide: () => Promise<void>;
+  fetchRoute: (force?: boolean) => Promise<void>;
   createRide: (params: {
     pickup: LocationPayload;
     destination: LocationPayload;
@@ -42,6 +52,11 @@ export const useRideStore = create<RideState>((set, get) => ({
   offers: [],
   chatMessages: [],
   driverLocation: null,
+  routeStatus: 'UNAVAILABLE',
+  routeCoordinates: [],
+  roadDistanceMeters: undefined,
+  roadDurationSeconds: undefined,
+  lastRouteOrigin: null,
   isLoading: false,
   error: null,
   isReconciling: false,
@@ -58,18 +73,127 @@ export const useRideStore = create<RideState>((set, get) => ({
         });
         // Also join socket room for this ride
         socketService.joinRide(data.ride.id);
+        get().fetchRoute(true);
       } else {
         // Only clear if no current active ride
         if (get().activeRide?.status === 'RIDE_COMPLETED' || get().activeRide?.status === 'CANCELLED') {
           // Keep completed ride state for payment/rating until dismissed
         } else {
-          set({ activeRide: null, offers: [], chatMessages: [] });
+          set({
+            activeRide: null,
+            offers: [],
+            chatMessages: [],
+            driverLocation: null,
+            routeStatus: 'UNAVAILABLE',
+            routeCoordinates: [],
+            roadDistanceMeters: undefined,
+            roadDurationSeconds: undefined,
+          });
         }
       }
     } catch (err: any) {
       console.warn('[RideStore] Reconcile active ride failed:', err.message);
     } finally {
       set({ isReconciling: false });
+    }
+  },
+
+  fetchRoute: async (force = false) => {
+    const { activeRide, driverLocation, lastRouteOrigin } = get();
+    if (!activeRide) return;
+
+    let origin: RouteCoordinate | null = null;
+    let destination: RouteCoordinate | null = null;
+
+    const isApproaching = ['DRIVER_SELECTED', 'DRIVER_EN_ROUTE', 'DRIVER_ARRIVED', 'RIDE_READY'].includes(
+      activeRide.status
+    );
+    const isStarted = activeRide.status === 'RIDE_STARTED';
+
+    if (isApproaching) {
+      if (driverLocation) {
+        origin = { latitude: driverLocation.latitude, longitude: driverLocation.longitude };
+      }
+      if (activeRide.pickup?.location?.coordinates && activeRide.pickup.location.coordinates.length === 2) {
+        destination = {
+          latitude: activeRide.pickup.location.coordinates[1],
+          longitude: activeRide.pickup.location.coordinates[0],
+        };
+      }
+    } else if (isStarted) {
+      if (driverLocation) {
+        origin = { latitude: driverLocation.latitude, longitude: driverLocation.longitude };
+      } else if (activeRide.pickup?.location?.coordinates && activeRide.pickup.location.coordinates.length === 2) {
+        origin = {
+          latitude: activeRide.pickup.location.coordinates[1],
+          longitude: activeRide.pickup.location.coordinates[0],
+        };
+      }
+
+      // Destination coordinates ONLY if genuinely set (Rule 14)
+      if (
+        activeRide.destination?.location?.coordinates &&
+        activeRide.destination.location.coordinates.length === 2 &&
+        typeof activeRide.destination.location.coordinates[1] === 'number' &&
+        typeof activeRide.destination.location.coordinates[0] === 'number'
+      ) {
+        destination = {
+          latitude: activeRide.destination.location.coordinates[1],
+          longitude: activeRide.destination.location.coordinates[0],
+        };
+      }
+    }
+
+    // If either origin or destination is missing or unverified, routeStatus is UNAVAILABLE (Rule 4 & 14)
+    if (!origin || !destination) {
+      set({
+        routeStatus: 'UNAVAILABLE',
+        routeCoordinates: [],
+        roadDistanceMeters: undefined,
+        roadDurationSeconds: undefined,
+      });
+      return;
+    }
+
+    // Distance threshold check: don't call Google Routes API on every single tick (Rule 12)
+    if (!force && lastRouteOrigin) {
+      const moved = calculateDistanceMeters(
+        lastRouteOrigin.latitude,
+        lastRouteOrigin.longitude,
+        origin.latitude,
+        origin.longitude
+      );
+      if (moved < SYSTEM_CONFIG.ROUTE_RECALC_MIN_DISTANCE_METERS) {
+        return;
+      }
+    }
+
+    try {
+      const res = await api.computeRoute({ origin, destination });
+      if (res && res.status === 'AVAILABLE' && res.encodedPolyline) {
+        const decoded = decodePolyline(res.encodedPolyline);
+        set({
+          routeStatus: 'AVAILABLE',
+          routeCoordinates: decoded,
+          roadDistanceMeters: res.distanceMeters,
+          roadDurationSeconds: res.durationSeconds,
+          lastRouteOrigin: origin,
+        });
+      } else {
+        set({
+          routeStatus: 'UNAVAILABLE',
+          routeCoordinates: [],
+          roadDistanceMeters: undefined,
+          roadDurationSeconds: undefined,
+        });
+      }
+    } catch {
+      set({
+        routeStatus: 'UNAVAILABLE',
+        routeCoordinates: [],
+        roadDistanceMeters: undefined,
+        roadDurationSeconds: undefined,
+      });
     }
   },
 
@@ -185,6 +309,7 @@ export const useRideStore = create<RideState>((set, get) => ({
     const onDriverSelected = (data: { ride: IRide; offer: IRideOffer }) => {
       if (get().activeRide?.id === data.ride.id) {
         set({ activeRide: data.ride });
+        get().fetchRoute(true);
       }
     };
 
@@ -197,6 +322,7 @@ export const useRideStore = create<RideState>((set, get) => ({
     const onDriverEnRoute = (data: { ride: IRide }) => {
       if (get().activeRide?.id === data.ride.id) {
         set({ activeRide: data.ride });
+        get().fetchRoute(true);
       }
     };
 
@@ -208,7 +334,8 @@ export const useRideStore = create<RideState>((set, get) => ({
 
     const onRideStarted = (data: { ride: IRide }) => {
       if (get().activeRide?.id === data.ride.id) {
-        set({ activeRide: data.ride });
+        set({ activeRide: data.ride, lastRouteOrigin: null });
+        get().fetchRoute(true);
       }
     };
 
@@ -234,14 +361,29 @@ export const useRideStore = create<RideState>((set, get) => ({
       }
     };
 
-    const onDriverLocation = (data: { driverId: string; latitude: number; longitude: number; heading?: number }) => {
+    const onDriverLocation = (data: {
+      driverId: string;
+      rideId?: string;
+      latitude: number;
+      longitude: number;
+      heading?: number;
+      timestamp?: number;
+    }) => {
+      const active = get().activeRide;
+      if (data.rideId && active && active.id !== data.rideId) {
+        return; // Ignore updates from other rides (Rule 5)
+      }
       set({
         driverLocation: {
           latitude: data.latitude,
           longitude: data.longitude,
           heading: data.heading,
+          timestamp: typeof data.timestamp === 'number' ? data.timestamp : Date.now(),
         },
       });
+
+      // Recalculate route only when meaningful movement occurs (Rule 12)
+      get().fetchRoute(false);
     };
 
     const onChatMessage = (msg: IRideMessage) => {
@@ -274,10 +416,11 @@ export const useRideStore = create<RideState>((set, get) => ({
     socket.on('ride:cancelled', onRideCancelled);
     socket.on('ride:radius_expanded', onRadiusExpanded);
     socket.on('ride:no_driver_found', onNoDriverFound);
-    socket.on('driver:location_updated', onDriverLocation);
+    socket.on('driver:location' as any, onDriverLocation as any);
+    socket.on('driver:location_updated', onDriverLocation as any);
     socket.on('chat:message', onChatMessage);
 
-    // Auto reconnect hook
+    // Auto reconnect hook (Rule 16: fetch authoritative active ride & reconcile)
     const unsubReconnect = socketService.onReconnect(() => {
       get().reconcileActiveRide();
     });
@@ -293,7 +436,8 @@ export const useRideStore = create<RideState>((set, get) => ({
       socket.off('ride:cancelled', onRideCancelled);
       socket.off('ride:radius_expanded', onRadiusExpanded);
       socket.off('ride:no_driver_found', onNoDriverFound);
-      socket.off('driver:location_updated', onDriverLocation);
+      socket.off('driver:location' as any, onDriverLocation as any);
+      socket.off('driver:location_updated', onDriverLocation as any);
       socket.off('chat:message', onChatMessage);
       unsubReconnect();
     };
@@ -305,6 +449,11 @@ export const useRideStore = create<RideState>((set, get) => ({
       offers: [],
       chatMessages: [],
       driverLocation: null,
+      routeStatus: 'UNAVAILABLE',
+      routeCoordinates: [],
+      roadDistanceMeters: undefined,
+      roadDurationSeconds: undefined,
+      lastRouteOrigin: null,
       error: null,
     });
   },

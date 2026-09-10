@@ -3,11 +3,14 @@ import {
   IRide,
   IRideOffer,
   DriverAvailabilityStatus,
+  RouteStatus,
+  RouteCoordinate,
 } from '@gaon-auto/types';
+import { decodePolyline, calculateDistanceMeters } from '@gaon-auto/utils';
+import { SYSTEM_CONFIG } from '@gaon-auto/config';
 import { api } from '../services/api';
 import { socketService } from '../services/socket';
 import { locationService } from '../services/location';
-
 
 interface DriverRequestItem {
   ride: IRide;
@@ -21,11 +24,18 @@ interface DriverState {
   incomingRequests: DriverRequestItem[];
   activeTrip: IRide | null;
   activeOffer: IRideOffer | null;
+  driverCurrentLocation: { latitude: number; longitude: number; heading?: number } | null;
+  routeStatus: RouteStatus;
+  routeCoordinates: RouteCoordinate[];
+  roadDistanceMeters?: number;
+  roadDurationSeconds?: number;
+  lastRouteOrigin: RouteCoordinate | null;
   isLoading: boolean;
   error: string | null;
 
   // Actions
   setOnlineStatus: (isOnline: boolean) => Promise<boolean>;
+  fetchDriverRoute: (force?: boolean) => Promise<void>;
   submitBid: (rideId: string, fare: number, etaMinutes: number, message?: string) => Promise<boolean>;
   dismissRequest: (rideId: string) => void;
   markArrived: () => Promise<boolean>;
@@ -44,8 +54,107 @@ export const useDriverStore = create<DriverState>((set, get) => ({
   incomingRequests: [],
   activeTrip: null,
   activeOffer: null,
+  driverCurrentLocation: null,
+  routeStatus: 'UNAVAILABLE',
+  routeCoordinates: [],
+  roadDistanceMeters: undefined,
+  roadDurationSeconds: undefined,
+  lastRouteOrigin: null,
   isLoading: false,
   error: null,
+
+  fetchDriverRoute: async (force = false) => {
+    const { activeTrip, driverCurrentLocation, lastRouteOrigin } = get();
+    if (!activeTrip) return;
+
+    let origin: RouteCoordinate | null = null;
+    let destination: RouteCoordinate | null = null;
+
+    if (driverCurrentLocation) {
+      origin = {
+        latitude: driverCurrentLocation.latitude,
+        longitude: driverCurrentLocation.longitude,
+      };
+    }
+
+    const isBeforeTrip = ['DRIVER_SELECTED', 'DRIVER_EN_ROUTE', 'DRIVER_ARRIVED', 'RIDE_READY'].includes(
+      activeTrip.status
+    );
+    const isStarted = activeTrip.status === 'RIDE_STARTED';
+
+    if (isBeforeTrip) {
+      // Route Driver -> Pickup spot
+      if (activeTrip.pickup?.location?.coordinates && activeTrip.pickup.location.coordinates.length === 2) {
+        destination = {
+          latitude: activeTrip.pickup.location.coordinates[1],
+          longitude: activeTrip.pickup.location.coordinates[0],
+        };
+      }
+    } else if (isStarted) {
+      // Route Driver -> Destination (ONLY if destination coordinates exist! Rule 14)
+      if (
+        activeTrip.destination?.location?.coordinates &&
+        activeTrip.destination.location.coordinates.length === 2 &&
+        typeof activeTrip.destination.location.coordinates[1] === 'number' &&
+        typeof activeTrip.destination.location.coordinates[0] === 'number'
+      ) {
+        destination = {
+          latitude: activeTrip.destination.location.coordinates[1],
+          longitude: activeTrip.destination.location.coordinates[0],
+        };
+      }
+    }
+
+    if (!origin || !destination) {
+      set({
+        routeStatus: 'UNAVAILABLE',
+        routeCoordinates: [],
+        roadDistanceMeters: undefined,
+        roadDurationSeconds: undefined,
+      });
+      return;
+    }
+
+    if (!force && lastRouteOrigin) {
+      const moved = calculateDistanceMeters(
+        lastRouteOrigin.latitude,
+        lastRouteOrigin.longitude,
+        origin.latitude,
+        origin.longitude
+      );
+      if (moved < SYSTEM_CONFIG.ROUTE_RECALC_MIN_DISTANCE_METERS) {
+        return;
+      }
+    }
+
+    try {
+      const res = await api.computeRoute({ origin, destination });
+      if (res && res.status === 'AVAILABLE' && res.encodedPolyline) {
+        const decoded = decodePolyline(res.encodedPolyline);
+        set({
+          routeStatus: 'AVAILABLE',
+          routeCoordinates: decoded,
+          roadDistanceMeters: res.distanceMeters,
+          roadDurationSeconds: res.durationSeconds,
+          lastRouteOrigin: origin,
+        });
+      } else {
+        set({
+          routeStatus: 'UNAVAILABLE',
+          routeCoordinates: [],
+          roadDistanceMeters: undefined,
+          roadDurationSeconds: undefined,
+        });
+      }
+    } catch {
+      set({
+        routeStatus: 'UNAVAILABLE',
+        routeCoordinates: [],
+        roadDistanceMeters: undefined,
+        roadDurationSeconds: undefined,
+      });
+    }
+  },
 
   setOnlineStatus: async (isOnline: boolean) => {
     set({ isLoading: true, error: null });
@@ -58,7 +167,16 @@ export const useDriverStore = create<DriverState>((set, get) => ({
       });
 
       if (res.isOnline) {
-        locationService.startDriverLocationTracking();
+        locationService.startDriverLocationTracking((coords) => {
+          set({
+            driverCurrentLocation: {
+              latitude: coords.latitude,
+              longitude: coords.longitude,
+              heading: coords.heading || undefined,
+            },
+          });
+          get().fetchDriverRoute(false);
+        });
       } else {
         locationService.stopDriverLocationTracking();
       }

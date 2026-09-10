@@ -7,6 +7,7 @@ import userRoutes from './routes/user.routes.js';
 import driverRoutes from './routes/driver.routes.js';
 import rideRoutes from './routes/ride.routes.js';
 import locationRoutes from './routes/location.routes.js';
+import { routeRouter } from './routes/route.routes.js';
 import { adminRouter, reportRouter } from './routes/admin.routes.js';
 
 export const app = express();
@@ -41,6 +42,7 @@ app.use('/api/v1/users', userRoutes);
 app.use('/api/v1/drivers', driverRoutes);
 app.use('/api/v1/rides', rideRoutes);
 app.use('/api/v1/locations', locationRoutes);
+app.use('/api/v1/routes', routeRouter);
 app.use('/api/v1/reports', reportRouter);
 app.use('/api/v1/admin', adminRouter);
 

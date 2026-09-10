@@ -331,10 +331,10 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   textInput: {
-    backgroundColor: Colors.surface,
+    backgroundColor: Colors.surfaceBg,
     color: Colors.white,
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: Colors.cardBorder,
     borderRadius: 10,
     paddingHorizontal: 14,
     paddingVertical: 12,
@@ -344,11 +344,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: Colors.surface,
+    backgroundColor: Colors.surfaceBg,
     padding: 12,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: Colors.cardBorder,
     marginBottom: 14,
   },
   docUploadLabel: {
@@ -366,7 +366,7 @@ const styles = StyleSheet.create({
   },
   uploadedBtn: {
     backgroundColor: 'rgba(16, 185, 129, 0.2)',
-    borderColor: Colors.success,
+    borderColor: Colors.accent,
   },
   uploadBtnText: {
     color: Colors.accent,
@@ -386,8 +386,8 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderRadius: 10,
     borderWidth: 1.5,
-    borderColor: Colors.border,
-    backgroundColor: Colors.surface,
+    borderColor: Colors.cardBorder,
+    backgroundColor: Colors.surfaceBg,
   },
   typeBtnActive: {
     borderColor: Colors.accent,
@@ -405,7 +405,7 @@ const styles = StyleSheet.create({
     color: Colors.white,
   },
   errorText: {
-    color: Colors.error,
+    color: Colors.danger,
     fontSize: 13,
     fontWeight: '700',
     marginTop: 8,

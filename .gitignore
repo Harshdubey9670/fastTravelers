@@ -1,0 +1,82 @@
+# ============================
+# Node / npm
+# ============================
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# ============================
+# Compiled output / dist
+# ============================
+dist/
+build/
+*.tsbuildinfo
+*.d.ts.map
+*.js.map
+
+# ============================
+# Environment & secrets
+# ============================
+.env
+.env.local
+.env.*.local
+.env.production
+*.pem
+*.key
+
+# ============================
+# Expo / React Native
+# ============================
+.expo/
+.expo-shared/
+expo-env.d.ts
+
+# Android
+android/
+android/.gradle/
+android/build/
+android/app/build/
+*.apk
+*.aab
+*.keystore
+
+# iOS
+ios/
+Pods/
+*.ipa
+
+# ============================
+# Vitest / Jest / test outputs
+# ============================
+coverage/
+.nyc_output/
+.cache/
+**/__snapshots__/
+
+# ============================
+# IDE / system
+# ============================
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.swo
+Thumbs.db
+
+# ============================
+# Logs
+# ============================
+logs/
+*.log
+
+# ============================
+# Package lock (keep package-lock.json for reproducible installs)
+# ============================
+# package-lock.json  <-- we DO want to track this
+
+# ============================
+# Vite / build cache
+# ============================
+.vite/

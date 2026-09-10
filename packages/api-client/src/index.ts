@@ -12,6 +12,8 @@ import {
   IRating,
   IReport,
   IRideEvent,
+  RouteComputeRequest,
+  RouteComputeResponse,
 } from '@gaon-auto/types';
 import { generateRandomToken } from '@gaon-auto/utils';
 
@@ -374,6 +376,22 @@ export class ApiClient {
       method: 'POST',
       body: JSON.stringify(data),
     });
+  }
+
+  // ==========================================
+  // ROUTE ENDPOINTS (Rule 3)
+  // ==========================================
+
+  async computeRoute(data: RouteComputeRequest): Promise<RouteComputeResponse> {
+    return this.request<RouteComputeResponse>('/api/v1/routes/compute', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  // Alias for registerDriver
+  async onboardDriver(data: any): Promise<IDriverProfile> {
+    return this.registerDriver(data);
   }
 
   // ==========================================

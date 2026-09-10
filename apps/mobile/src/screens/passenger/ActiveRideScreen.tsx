@@ -18,6 +18,7 @@ import { Badge } from '../../components/Badge';
 import { QuickChatModal } from '../../components/QuickChatModal';
 import { SOSModal } from '../../components/SOSModal';
 import { NetworkBanner } from '../../components/NetworkBanner';
+import { LiveRideMap } from '../../components/LiveRideMap';
 
 interface ActiveRideScreenProps {
   onRideCompleted: () => void;
@@ -36,6 +37,12 @@ export const ActiveRideScreen: React.FC<ActiveRideScreenProps> = ({
     sendChatMessage,
     cancelRide,
     reconcileActiveRide,
+    driverLocation,
+    routeStatus,
+    routeCoordinates,
+    roadDistanceMeters,
+    roadDurationSeconds,
+    fetchRoute,
     isLoading,
   } = useRideStore();
 
@@ -126,6 +133,40 @@ export const ActiveRideScreen: React.FC<ActiveRideScreenProps> = ({
           <Text style={styles.statusEmoji}>{statusInfo.emoji}</Text>
           <Text style={styles.statusTitle}>{statusInfo.title}</Text>
         </View>
+
+        {/* Live Interactive Google Map (Rules 1, 9, 14) */}
+        <LiveRideMap
+          mode="passenger"
+          pickup={
+            activeRide.pickup?.location?.coordinates && activeRide.pickup.location.coordinates.length === 2
+              ? {
+                  latitude: activeRide.pickup.location.coordinates[1],
+                  longitude: activeRide.pickup.location.coordinates[0],
+                  addressText: activeRide.pickup.addressText,
+                }
+              : null
+          }
+          destination={
+            activeRide.destination?.location?.coordinates &&
+            activeRide.destination.location.coordinates.length === 2 &&
+            typeof activeRide.destination.location.coordinates[1] === 'number'
+              ? {
+                  latitude: activeRide.destination.location.coordinates[1],
+                  longitude: activeRide.destination.location.coordinates[0],
+                  addressText: activeRide.destination.addressText,
+                }
+              : { addressText: activeRide.destination?.addressText }
+          }
+          driverLocation={driverLocation}
+          vehicleType={activeRide.driver?.vehicle?.vehicleType || 'AUTO'}
+          routeStatus={routeStatus}
+          routeCoordinates={routeCoordinates}
+          roadDistanceMeters={roadDistanceMeters}
+          roadDurationSeconds={roadDurationSeconds}
+          language={language}
+          height={260}
+          onRefreshRoute={() => fetchRoute(true)}
+        />
 
         {/* 4-Digit Secure Trip OTP Card */}
         {activeRide.status !== 'RIDE_STARTED' ? (

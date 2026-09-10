@@ -412,6 +412,31 @@ export interface IReport {
 // SOCKET.IO EVENT MAPS
 // ==========================================
 
+// ==========================================
+// ROUTE TYPES
+// ==========================================
+
+export type RouteStatus = 'AVAILABLE' | 'UNAVAILABLE';
+
+export interface RouteCoordinate {
+  latitude: number;
+  longitude: number;
+}
+
+export interface RouteComputeRequest {
+  origin: RouteCoordinate;
+  destination: RouteCoordinate;
+  intermediateWaypoints?: RouteCoordinate[];
+}
+
+export interface RouteComputeResponse {
+  status: RouteStatus;
+  distanceMeters?: number;
+  durationSeconds?: number;
+  encodedPolyline?: string;
+  errorMessage?: string;
+}
+
 export interface ServerToClientEvents {
   // Ride events
   'ride:new_request': (data: { ride: IRide; distanceMeters: number }) => void;
@@ -430,7 +455,15 @@ export interface ServerToClientEvents {
     contactedDriversCount: number;
   }) => void;
 
-  // Driver location stream
+  // Driver location stream (authorized ride room)
+  'driver:location': (data: {
+    driverId: string;
+    rideId: string;
+    latitude: number;
+    longitude: number;
+    heading?: number;
+    timestamp: number;
+  }) => void;
   'driver:location_updated': (data: {
     driverId: string;
     latitude: number;
@@ -461,6 +494,7 @@ export interface ClientToServerEvents {
     heading?: number;
     speed?: number;
     accuracy?: number;
+    timestamp?: number;
   }) => void;
   'chat:send': (
     data: { rideId: string; text: string; quickReplyCode?: string },

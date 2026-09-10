@@ -29,11 +29,15 @@ export const SYSTEM_CONFIG = {
   DRIVER_INVITATION_TIMEOUT_SECONDS: 45, // 45 seconds for driver to accept/bid
   FARE_OFFER_TIMEOUT_SECONDS: 90, // 90 seconds for passenger to pick an offer
 
-  // Location update intervals
+  // Location update intervals & thresholds (Rule 6)
   DRIVER_LOCATION_IDLE_INTERVAL_MS: 15000, // 15 seconds when idle ONLINE
   DRIVER_LOCATION_ACTIVE_INTERVAL_MS: 5000, // 5 seconds when en-route / in-ride
   DRIVER_LOCATION_MIN_DISTANCE_METERS: 10, // Must move at least 10m to emit
-  DRIVER_STALE_LOCATION_THRESHOLD_MS: 120000, // 2 minutes without update considered stale
+  DRIVER_LOCATION_THROTTLE_MS: 3000, // Server-side throttle: minimum 3s between accepted location updates per driver
+  DRIVER_LOCATION_STALE_DISPLAY_MS: 30000, // 30 seconds threshold for UI "Driver location updating..." (Rule 9)
+  DRIVER_STALE_LOCATION_THRESHOLD_MS: 120000, // 2 minutes without update considered offline/stale in database
+  ROUTE_RECALC_MIN_DISTANCE_METERS: 150, // Only recalculate route if driver moves >150m off prior origin (Rule 12)
+  ROUTE_CACHE_TTL_MS: 60000, // 60s cache for Google Routes API responses
 
   // Idempotency
   IDEMPOTENCY_TTL_SECONDS: 86400, // 24 hours

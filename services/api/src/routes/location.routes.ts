@@ -48,4 +48,30 @@ router.get('/areas', async (req, res, next) => {
   }
 });
 
+// 4. Privacy-preserving nearby driver availability summary (Rule 8)
+router.get('/nearby-summary', async (req, res, next) => {
+  try {
+    const lat = req.query.lat ? parseFloat(req.query.lat as string) : undefined;
+    const lng = req.query.lng ? parseFloat(req.query.lng as string) : undefined;
+
+    if (!lat || !lng) {
+      return res.status(200).json({
+        success: true,
+        data: { nearbyAvailableCount: 0, closestDistanceMeters: null },
+      });
+    }
+
+    const { drivers } = await locationService.findNearbyEligibleDrivers(lat, lng, 3.0, 5.0, 2.0, 10);
+    return res.status(200).json({
+      success: true,
+      data: {
+        nearbyAvailableCount: drivers.length,
+        closestDistanceMeters: drivers.length > 0 ? drivers[0].distanceMeters : null,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 export default router;
