@@ -13,7 +13,9 @@
         "gradleCommand": ":app:assembleDebug"
       },
       "env": {
-        "EXPO_PUBLIC_API_URL": "http://10.0.2.2:5050"
+        "EXPO_PUBLIC_API_URL": "http://192.168.1.6:5050",
+        "EXPO_PUBLIC_MAP_STYLE_URL": "https://api.maptiler.com/maps/01a08b10-f39f-7a08-932d-b1eed09cec73/style.json?key=qZZQiwvQ6pwqj0jWuvst",
+        "EXPO_PUBLIC_MAPTILER_API_KEY": "qZZQiwvQ6pwqj0jWuvst"
       }
     },
     "preview": {
