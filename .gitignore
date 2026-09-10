@@ -25,6 +25,8 @@ build/
 .env.production
 *.pem
 *.key
+credentials.json
+apps/mobile/credentials.json
 
 # ============================
 # Expo / React Native
