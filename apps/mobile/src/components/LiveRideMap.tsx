@@ -33,10 +33,15 @@ try {
  * 3. Default fallback: MapLibre Demotiles (completely open, free, no API key required)
  */
 export const getMapStyleUrl = (): string => {
-  const customUrl =
+  let customUrl =
     process.env.EXPO_PUBLIC_MAP_STYLE_URL ||
     (typeof process !== 'undefined' && (process.env as any)?.MAP_STYLE_URL);
   if (customUrl) {
+    if (customUrl.includes('api.maptiler.com/maps/') && !customUrl.includes('/style.json')) {
+      const [base, query] = customUrl.split('?');
+      const cleanBase = base.endsWith('/') ? base.slice(0, -1) : base;
+      customUrl = `${cleanBase}/style.json${query ? `?${query}` : ''}`;
+    }
     return customUrl;
   }
 
