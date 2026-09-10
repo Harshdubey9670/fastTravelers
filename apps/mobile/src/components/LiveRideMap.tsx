@@ -1,4 +1,4 @@
-import React, { useRef, useState, useEffect, useCallback } from 'react';
+import React, { useRef, useState, useEffect, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -11,25 +11,45 @@ import {
 import * as Location from 'expo-location';
 import { Colors } from '../theme/colors';
 import { AutoRickshawMarker } from './AutoRickshawMarker';
+import { PickupPinMarker, DestinationPinMarker } from './MapPinMarkers';
 import { SYSTEM_CONFIG } from '@gaon-auto/config';
 import { RouteStatus, RouteCoordinate } from '@gaon-auto/types';
 
-// Conditionally import MapView from react-native-maps for native platforms
-let MapView: any = null;
-let Marker: any = null;
-let Polyline: any = null;
-let PROVIDER_GOOGLE: any = null;
+// Conditionally load MapLibre for native platforms with graceful web/fallback support
+let MapLibreGL: any = null;
 
 try {
-  const MapsModule = require('react-native-maps');
-  MapView = MapsModule.default || MapsModule;
-  Marker = MapsModule.Marker;
-  Polyline = MapsModule.Polyline;
-  PROVIDER_GOOGLE = MapsModule.PROVIDER_GOOGLE;
+  const MLRN = require('@maplibre/maplibre-react-native');
+  MapLibreGL = MLRN.default || MLRN;
 } catch (err) {
-  // Graceful fallback for non-native / web environments
-  MapView = null;
+  MapLibreGL = null;
 }
+
+/**
+ * Resolves map tile / style JSON URL (Step 4)
+ * Priority:
+ * 1. EXPO_PUBLIC_MAP_STYLE_URL or MAP_STYLE_URL (custom hosted style)
+ * 2. EXPO_PUBLIC_MAPTILER_API_KEY (MapTiler Streets style)
+ * 3. Default fallback: MapLibre Demotiles (completely open, free, no API key required)
+ */
+export const getMapStyleUrl = (): string => {
+  const customUrl =
+    process.env.EXPO_PUBLIC_MAP_STYLE_URL ||
+    (typeof process !== 'undefined' && (process.env as any)?.MAP_STYLE_URL);
+  if (customUrl) {
+    return customUrl;
+  }
+
+  const maptilerKey =
+    process.env.EXPO_PUBLIC_MAPTILER_API_KEY ||
+    (typeof process !== 'undefined' && (process.env as any)?.MAPTILER_API_KEY);
+  if (maptilerKey) {
+    return `https://api.maptiler.com/maps/streets-v2/style.json?key=${maptilerKey}`;
+  }
+
+  // Completely open, free style that works out-of-the-box for development and testing
+  return 'https://demotiles.maplibre.org/style.json';
+};
 
 export interface LiveRideMapProps {
   mode: 'passenger' | 'driver';
@@ -73,7 +93,7 @@ export const LiveRideMap: React.FC<LiveRideMapProps> = ({
   height = 300,
   onRefreshRoute,
 }) => {
-  const mapRef = useRef<any>(null);
+  const cameraRef = useRef<any>(null);
 
   const [permissionStatus, setPermissionStatus] = useState<
     'UNDETERMINED' | 'GRANTED' | 'DENIED' | 'SERVICES_DISABLED'
@@ -85,18 +105,20 @@ export const LiveRideMap: React.FC<LiveRideMapProps> = ({
   const [isLocating, setIsLocating] = useState(false);
   const [permissionMessage, setPermissionMessage] = useState<string | null>(null);
 
+  const mapStyle = useMemo(() => getMapStyleUrl(), []);
+
   // Default coordinate center (Lucknow / Uttar Pradesh region or pickup)
   const initialLat = pickup?.latitude || driverLocation?.latitude || 26.8467;
   const initialLng = pickup?.longitude || driverLocation?.longitude || 80.9462;
 
-  // Stale driver location check (Rule 9: > 30s is stale)
+  // Stale driver location check (> 30s is stale)
   const isDriverStale = Boolean(
     driverLocation?.timestamp &&
       Date.now() - driverLocation.timestamp > SYSTEM_CONFIG.DRIVER_LOCATION_STALE_DISPLAY_MS
   );
 
   /**
-   * Checks & requests location permissions (Rule 15 & MyLocationDemoActivity)
+   * Checks & requests location permissions (via expo-location)
    */
   const requestLocation = useCallback(async () => {
     setIsLocating(true);
@@ -155,21 +177,17 @@ export const LiveRideMap: React.FC<LiveRideMapProps> = ({
   }, [requestLocation]);
 
   /**
-   * "My Location" Button Handler (MyLocationDemoActivity logic)
+   * "My Location" Button Handler
    * Requests permission if needed and centers camera to current GPS location.
    */
   const handleMyLocationPress = async () => {
     const coords = await requestLocation();
-    if (coords && mapRef.current) {
-      mapRef.current.animateToRegion(
-        {
-          latitude: coords.latitude,
-          longitude: coords.longitude,
-          latitudeDelta: 0.012,
-          longitudeDelta: 0.012,
-        },
-        700
-      );
+    if (coords && cameraRef.current) {
+      cameraRef.current.setCamera({
+        centerCoordinate: [coords.longitude, coords.latitude],
+        zoomLevel: 15.5,
+        animationDuration: 700,
+      });
     }
   };
 
@@ -178,53 +196,66 @@ export const LiveRideMap: React.FC<LiveRideMapProps> = ({
    * Fits driver location and pickup/destination inside the visible viewport.
    */
   const handleFitBothPress = () => {
-    if (!mapRef.current) return;
+    if (!cameraRef.current) return;
 
-    const pointsToFit: Array<{ latitude: number; longitude: number }> = [];
+    const points: Array<[number, number]> = [];
 
     if (driverLocation?.latitude && driverLocation?.longitude) {
-      pointsToFit.push({
-        latitude: driverLocation.latitude,
-        longitude: driverLocation.longitude,
-      });
+      points.push([driverLocation.longitude, driverLocation.latitude]);
     }
 
     if (pickup?.latitude && pickup?.longitude) {
-      pointsToFit.push({
-        latitude: pickup.latitude,
-        longitude: pickup.longitude,
-      });
+      points.push([pickup.longitude, pickup.latitude]);
     }
 
-    if (destination?.latitude && destination?.longitude) {
-      pointsToFit.push({
-        latitude: destination.latitude,
-        longitude: destination.longitude,
-      });
+    if (hasValidDestinationCoords) {
+      points.push([destination!.longitude!, destination!.latitude!]);
     }
 
-    if (pointsToFit.length >= 2) {
-      mapRef.current.fitToCoordinates(pointsToFit, {
-        edgePadding: { top: 60, right: 60, bottom: 60, left: 60 },
-        animated: true,
-      });
-    } else if (pointsToFit.length === 1) {
-      mapRef.current.animateToRegion(
-        {
-          latitude: pointsToFit[0].latitude,
-          longitude: pointsToFit[0].longitude,
-          latitudeDelta: 0.02,
-          longitudeDelta: 0.02,
-        },
-        600
+    if (points.length >= 2) {
+      let minLng = points[0][0];
+      let maxLng = points[0][0];
+      let minLat = points[0][1];
+      let maxLat = points[0][1];
+
+      for (const [lng, lat] of points) {
+        minLng = Math.min(minLng, lng);
+        maxLng = Math.max(maxLng, lng);
+        minLat = Math.min(minLat, lat);
+        maxLat = Math.max(maxLat, lat);
+      }
+
+      // Add minimum padding margin if coordinates are very close
+      if (maxLng - minLng < 0.005) {
+        maxLng += 0.003;
+        minLng -= 0.003;
+      }
+      if (maxLat - minLat < 0.005) {
+        maxLat += 0.003;
+        minLat -= 0.003;
+      }
+
+      cameraRef.current.fitBounds(
+        [maxLng, maxLat],
+        [minLng, minLat],
+        [50, 50, 50, 50],
+        800
       );
+    } else if (points.length === 1) {
+      cameraRef.current.setCamera({
+        centerCoordinate: points[0],
+        zoomLevel: 15,
+        animationDuration: 600,
+      });
     }
   };
 
   /**
-   * Open External Google Maps for turn-by-turn spoken navigation (Rule 10 & 11)
+   * Open External Navigation (Step 11)
+   * Uses Linking.canOpenURL() to open native Google Maps or fallback without crashing.
+   * Does NOT require Google Maps Platform API key.
    */
-  const handleOpenGoogleNavigation = () => {
+  const handleOpenExternalNavigation = async () => {
     const target =
       mode === 'driver' && destination?.latitude && destination?.longitude
         ? destination
@@ -232,20 +263,42 @@ export const LiveRideMap: React.FC<LiveRideMapProps> = ({
 
     if (!target || !target.latitude || !target.longitude) return;
 
-    const url = Platform.select({
-      ios: `maps://app?daddr=${target.latitude},${target.longitude}&dirflg=d`,
-      android: `google.navigation:q=${target.latitude},${target.longitude}&mode=d`,
-      default: `https://www.google.com/maps/dir/?api=1&destination=${target.latitude},${target.longitude}&travelmode=driving`,
-    });
+    const lat = target.latitude;
+    const lng = target.longitude;
 
-    Linking.openURL(url).catch(() => {
-      Linking.openURL(
-        `https://www.google.com/maps/dir/?api=1&destination=${target.latitude},${target.longitude}&travelmode=driving`
-      );
-    });
+    const nativeGoogleMapsUrl = `google.navigation:q=${lat},${lng}&mode=d`;
+    const iosMapsUrl = `maps://app?daddr=${lat},${lng}&dirflg=d`;
+    const browserGoogleUrl = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}&travelmode=driving`;
+    const osmWebUrl = `https://www.openstreetmap.org/directions?engine=fossgis_osrm_car&route=%3B${lat}%2C${lng}`;
+
+    try {
+      if (Platform.OS === 'android') {
+        const canOpenNative = await Linking.canOpenURL(nativeGoogleMapsUrl);
+        if (canOpenNative) {
+          await Linking.openURL(nativeGoogleMapsUrl);
+          return;
+        }
+      } else if (Platform.OS === 'ios') {
+        const canOpenIos = await Linking.canOpenURL(iosMapsUrl);
+        if (canOpenIos) {
+          await Linking.openURL(iosMapsUrl);
+          return;
+        }
+      }
+
+      const canOpenBrowser = await Linking.canOpenURL(browserGoogleUrl);
+      if (canOpenBrowser) {
+        await Linking.openURL(browserGoogleUrl);
+      } else {
+        await Linking.openURL(osmWebUrl);
+      }
+    } catch (err) {
+      console.warn('[LiveRideMap] Navigation launch error:', err);
+      Linking.openURL(browserGoogleUrl).catch(() => {});
+    }
   };
 
-  // Check if destination coordinates genuinely exist (Rule 14)
+  // Check if destination coordinates genuinely exist (Step 10)
   const hasValidDestinationCoords = Boolean(
     destination?.latitude &&
       destination?.longitude &&
@@ -266,13 +319,29 @@ export const LiveRideMap: React.FC<LiveRideMapProps> = ({
         : `${(roadDistanceMeters / 1000).toFixed(1)} km`
       : null;
 
-  // Render Web / Fallback view if native MapView is not available
-  if (!MapView || Platform.OS === 'web') {
+  // Build GeoJSON Feature for route polyline
+  const routeGeoJSON = useMemo(() => {
+    if (routeStatus !== 'AVAILABLE' || routeCoordinates.length < 2) {
+      return null;
+    }
+
+    return {
+      type: 'Feature' as const,
+      properties: {},
+      geometry: {
+        type: 'LineString' as const,
+        coordinates: routeCoordinates.map((c) => [c.longitude, c.latitude]),
+      },
+    };
+  }, [routeStatus, routeCoordinates]);
+
+  // Render Web / Fallback view if native MapLibre is not available
+  if (!MapLibreGL || Platform.OS === 'web') {
     return (
       <View style={[styles.container, { height }]}>
         <View style={styles.fallbackContainer}>
           <Text style={styles.fallbackTitle}>
-            🗺️ {language === 'hi' ? 'लाइव लोकेशन मैप' : 'Live Location Map'}
+            🗺️ {language === 'hi' ? 'लाइव लोकेशन मैप (MapLibre)' : 'Live Location Map (MapLibre)'}
           </Text>
 
           {/* Status Indicators */}
@@ -299,11 +368,23 @@ export const LiveRideMap: React.FC<LiveRideMapProps> = ({
             ) : null}
           </View>
 
+          {/* Destination Text (Step 10: show text even when coords missing) */}
+          {destination?.addressText ? (
+            <View style={styles.destinationTextBanner}>
+              <Text style={styles.destinationTextLabel}>
+                🏁 {destination.addressText}
+                {!hasValidDestinationCoords
+                  ? ` (${language === 'hi' ? 'स्थान केवल नाम से' : 'Approximate / Named Only'})`
+                  : ''}
+              </Text>
+            </View>
+          ) : null}
+
           {/* Route Status */}
           {routeStatus === 'AVAILABLE' && (distanceKmText || etaMinutes) ? (
             <View style={styles.routeAvailablePill}>
               <Text style={styles.routeAvailableText}>
-                🛣️ {distanceKmText} • ~{etaMinutes} {language === 'hi' ? 'मिनट' : 'mins'} (Road)
+                🛣️ {distanceKmText} • ~{etaMinutes} {language === 'hi' ? 'मिनट' : 'mins'}
               </Text>
             </View>
           ) : (
@@ -317,11 +398,15 @@ export const LiveRideMap: React.FC<LiveRideMapProps> = ({
           {/* Action Buttons */}
           <View style={styles.fallbackActionRow}>
             <TouchableOpacity style={styles.controlBtn} onPress={handleMyLocationPress}>
-              <Text style={styles.controlBtnText}>🎯 {language === 'hi' ? 'मेरा स्थान' : 'My Location'}</Text>
+              <Text style={styles.controlBtnText}>
+                🎯 {language === 'hi' ? 'मेरा स्थान' : 'My Location'}
+              </Text>
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.controlBtn} onPress={handleOpenGoogleNavigation}>
-              <Text style={styles.controlBtnText}>↗️ {language === 'hi' ? 'गूगल मैप्स नेविगेशन' : 'Google Maps'}</Text>
+            <TouchableOpacity style={styles.controlBtn} onPress={handleOpenExternalNavigation}>
+              <Text style={styles.controlBtnText}>
+                ↗️ {language === 'hi' ? 'नेविगेशन' : 'Navigation'}
+              </Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -329,79 +414,89 @@ export const LiveRideMap: React.FC<LiveRideMapProps> = ({
     );
   }
 
-  // Render Native Google Maps
+  // Render Native MapLibre Map
   return (
     <View style={[styles.container, { height }]}>
-      <MapView
-        ref={mapRef}
-        provider={PROVIDER_GOOGLE}
+      <MapLibreGL.MapView
         style={StyleSheet.absoluteFillObject}
-        initialRegion={{
-          latitude: initialLat,
-          longitude: initialLng,
-          latitudeDelta: 0.025,
-          longitudeDelta: 0.025,
-        }}
-        showsUserLocation={permissionStatus === 'GRANTED'}
-        showsMyLocationButton={false}
-        showsCompass={true}
-        loadingEnabled={true}
+        styleURL={mapStyle}
+        logoEnabled={false}
+        attributionEnabled={false}
       >
-        {/* Passenger Pickup Marker (🟢) */}
+        <MapLibreGL.Camera
+          ref={cameraRef}
+          defaultSettings={{
+            centerCoordinate: [initialLng, initialLat],
+            zoomLevel: 14,
+          }}
+        />
+
+        {/* Current User Location (via expo-location / MapLibre user location) */}
+        {permissionStatus === 'GRANTED' && (
+          <MapLibreGL.UserLocation
+            visible={true}
+            showsUserHeadingIndicator={true}
+          />
+        )}
+
+        {/* Passenger Pickup Marker (Visual SVG Pin Component) */}
         {pickup?.latitude && pickup?.longitude ? (
-          <Marker
-            coordinate={{
-              latitude: pickup.latitude,
-              longitude: pickup.longitude,
-            }}
-            title={language === 'hi' ? 'पिकअप स्थान' : 'Pickup Location'}
-            description={pickup.addressText || ''}
-            pinColor="#10B981"
-          />
+          <MapLibreGL.PointAnnotation
+            id="pickup-point"
+            coordinate={[pickup.longitude, pickup.latitude]}
+            title={language === 'hi' ? 'पिकअप' : 'Pickup'}
+          >
+            <PickupPinMarker
+              language={language}
+              title={language === 'hi' ? 'पिकअप' : 'Pickup'}
+            />
+          </MapLibreGL.PointAnnotation>
         ) : null}
 
-        {/* Destination Marker (🔴) - ONLY when coordinates exist (Rule 14) */}
+        {/* Destination Marker - ONLY when valid coordinates exist (Step 10) */}
         {hasValidDestinationCoords ? (
-          <Marker
-            coordinate={{
-              latitude: destination!.latitude!,
-              longitude: destination!.longitude!,
-            }}
+          <MapLibreGL.PointAnnotation
+            id="destination-point"
+            coordinate={[destination!.longitude!, destination!.latitude!]}
             title={language === 'hi' ? 'गंतव्य' : 'Destination'}
-            description={destination!.addressText || ''}
-            pinColor="#EF4444"
-          />
+          >
+            <DestinationPinMarker
+              language={language}
+              title={language === 'hi' ? 'गंतव्य' : 'Destination'}
+            />
+          </MapLibreGL.PointAnnotation>
         ) : null}
 
-        {/* Live Driver Marker (🛺 Auto / E-Rickshaw with Heading) */}
+        {/* Live Driver Marker (🛺 Auto / E-Rickshaw with Dynamic Heading) */}
         {driverLocation?.latitude && driverLocation?.longitude ? (
-          <Marker
-            coordinate={{
-              latitude: driverLocation.latitude,
-              longitude: driverLocation.longitude,
-            }}
-            anchor={{ x: 0.5, y: 0.5 }}
-            flat={true}
+          <MapLibreGL.PointAnnotation
+            id="driver-point"
+            coordinate={[driverLocation.longitude, driverLocation.latitude]}
             title={language === 'hi' ? 'चालक साथी' : 'Driver Partner'}
           >
             <AutoRickshawMarker
               heading={driverLocation.heading}
               vehicleType={vehicleType}
             />
-          </Marker>
+          </MapLibreGL.PointAnnotation>
         ) : null}
 
-        {/* Road Route Polyline - ONLY when routeStatus === 'AVAILABLE' (Rules 3 & 4) */}
-        {routeStatus === 'AVAILABLE' && routeCoordinates.length > 0 ? (
-          <Polyline
-            coordinates={routeCoordinates}
-            strokeColor="#3B82F6"
-            strokeWidth={4}
-            lineCap="round"
-            lineJoin="round"
-          />
+        {/* Road Route Polyline - GeoJSON ShapeSource & LineLayer (Step 3 & 5) */}
+        {routeGeoJSON ? (
+          <MapLibreGL.ShapeSource id="routeSource" shape={routeGeoJSON}>
+            <MapLibreGL.LineLayer
+              id="routeLine"
+              style={{
+                lineColor: '#3B82F6',
+                lineWidth: 5,
+                lineCap: 'round',
+                lineJoin: 'round',
+                lineOpacity: 0.9,
+              }}
+            />
+          </MapLibreGL.ShapeSource>
         ) : null}
-      </MapView>
+      </MapLibreGL.MapView>
 
       {/* Top Banner: Route Status / Stale Driver Notice */}
       <View style={styles.topOverlayContainer}>
@@ -429,6 +524,15 @@ export const LiveRideMap: React.FC<LiveRideMapProps> = ({
             </Text>
           </View>
         )}
+
+        {/* Step 10: If destination coordinates missing, display address text notice */}
+        {destination?.addressText && !hasValidDestinationCoords ? (
+          <View style={styles.destinationNoticePill}>
+            <Text style={styles.destinationNoticeText}>
+              🏁 {destination.addressText} ({language === 'hi' ? 'नाम से' : 'Named Only'})
+            </Text>
+          </View>
+        ) : null}
       </View>
 
       {/* Floating Controls: Fit Both, My Location, External Navigation */}
@@ -442,7 +546,7 @@ export const LiveRideMap: React.FC<LiveRideMapProps> = ({
           <Text style={styles.floatingBtnText}>🔍</Text>
         </TouchableOpacity>
 
-        {/* My Location Button (MyLocationDemoActivity) */}
+        {/* My Location Button */}
         <TouchableOpacity
           style={styles.floatingBtn}
           onPress={handleMyLocationPress}
@@ -456,10 +560,10 @@ export const LiveRideMap: React.FC<LiveRideMapProps> = ({
           )}
         </TouchableOpacity>
 
-        {/* External Google Navigation for Turn-by-Turn GPS */}
+        {/* External Turn-by-Turn Navigation (Step 11) */}
         <TouchableOpacity
           style={[styles.floatingBtn, styles.navBtn]}
-          onPress={handleOpenGoogleNavigation}
+          onPress={handleOpenExternalNavigation}
           activeOpacity={0.8}
         >
           <Text style={styles.navBtnText}>↗️</Text>
@@ -528,6 +632,19 @@ const styles = StyleSheet.create({
     color: '#94A3B8',
     fontSize: 11,
     fontWeight: '500',
+  },
+  destinationNoticePill: {
+    backgroundColor: 'rgba(30, 41, 59, 0.9)',
+    borderColor: '#475569',
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  destinationNoticeText: {
+    color: '#E2E8F0',
+    fontSize: 11,
+    fontWeight: '600',
   },
   controlsContainer: {
     position: 'absolute',
@@ -616,6 +733,18 @@ const styles = StyleSheet.create({
     color: '#10B981',
     fontSize: 12,
     fontWeight: '600',
+  },
+  destinationTextBanner: {
+    backgroundColor: 'rgba(30, 41, 59, 0.8)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    marginBottom: 8,
+  },
+  destinationTextLabel: {
+    color: '#F1F5F9',
+    fontSize: 12,
+    fontWeight: '500',
   },
   fallbackActionRow: {
     flexDirection: 'row',

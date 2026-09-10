@@ -1,6 +1,6 @@
 import { ENV } from '../config/env.js';
 import { RouteComputeRequest, RouteComputeResponse } from '@gaon-auto/types';
-import { isValidCoordinate } from '@gaon-auto/utils';
+import { isValidCoordinate, decodePolyline } from '@gaon-auto/utils';
 import { SYSTEM_CONFIG } from '@gaon-auto/config';
 
 interface CacheEntry {
@@ -18,9 +18,9 @@ export class RouteService {
   }
 
   /**
-   * Computes road route via Google Routes API (ComputeRoutes).
-   * Strictly requests only distanceMeters, duration, and polyline.encodedPolyline.
-   * If Google Routes API is unconfigured or fails, returns status: UNAVAILABLE.
+   * Computes road route via OpenRouteService Directions API (v2/directions/driving-car).
+   * Architecture: Mobile -> Fast Arrival Backend -> OpenRouteService -> Backend -> Mobile
+   * If OpenRouteService is unconfigured or fails, returns status: UNAVAILABLE.
    * NEVER generates fake coordinates, fake straight lines, or fake ETA.
    */
   async computeRoute(request: RouteComputeRequest): Promise<RouteComputeResponse> {
@@ -49,94 +49,84 @@ export class RouteService {
       return cached.response;
     }
 
-    // Check if Google Routes API key is configured
-    const apiKey = ENV.GOOGLE_ROUTES_API_KEY;
+    // Check if OpenRouteService API key is configured (Step 5)
+    const apiKey = ENV.OPENROUTESERVICE_API_KEY;
     if (!apiKey) {
       const unavailableResponse: RouteComputeResponse = {
         status: 'UNAVAILABLE',
-        errorMessage: 'Google Routes API key is not configured on server',
+        errorMessage: 'OpenRouteService API key is not configured on server',
       };
       return unavailableResponse;
     }
 
     try {
-      const payload: any = {
-        origin: {
-          location: {
-            latLng: {
-              latitude: origin.latitude,
-              longitude: origin.longitude,
-            },
-          },
-        },
-        destination: {
-          location: {
-            latLng: {
-              latitude: destination.latitude,
-              longitude: destination.longitude,
-            },
-          },
-        },
-        travelMode: 'DRIVE',
-        routingPreference: 'TRAFFIC_AWARE',
-      };
+      // OpenRouteService expects coordinates as [longitude, latitude]
+      const coordinates: number[][] = [
+        [origin.longitude, origin.latitude],
+      ];
 
       if (intermediateWaypoints && intermediateWaypoints.length > 0) {
-        payload.intermediates = intermediateWaypoints
-          .filter((w) => isValidCoordinate(w.latitude, w.longitude))
-          .map((w) => ({
-            location: {
-              latLng: {
-                latitude: w.latitude,
-                longitude: w.longitude,
-              },
-            },
-          }));
+        for (const wp of intermediateWaypoints) {
+          if (isValidCoordinate(wp.latitude, wp.longitude)) {
+            coordinates.push([wp.longitude, wp.latitude]);
+          }
+        }
       }
 
-      const response = await fetch('https://routes.googleapis.com/directions/v2:computeRoutes', {
+      coordinates.push([destination.longitude, destination.latitude]);
+
+      const response = await fetch('https://api.openrouteservice.org/v2/directions/driving-car', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-Goog-Api-Key': apiKey,
-          'X-Goog-FieldMask': 'routes.duration,routes.distanceMeters,routes.polyline.encodedPolyline',
+          'Authorization': apiKey,
         },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({
+          coordinates,
+          instructions: false,
+        }),
       });
 
       if (!response.ok) {
         const errorText = await response.text().catch(() => '');
-        console.warn(`[RouteService] Google Routes API returned ${response.status}:`, errorText);
+        console.warn(`[RouteService] OpenRouteService API returned ${response.status}:`, errorText);
         return {
           status: 'UNAVAILABLE',
-          errorMessage: `Routes API returned status ${response.status}`,
+          errorMessage: `OpenRouteService returned status ${response.status}`,
         };
       }
 
       const data = (await response.json()) as any;
       const route = data?.routes?.[0];
 
-      if (!route || !route.polyline?.encodedPolyline) {
+      if (!route || !route.summary) {
         return {
           status: 'UNAVAILABLE',
           errorMessage: 'No road route found between specified points',
         };
       }
 
-      // Parse duration: Google returns string like "540s"
-      let durationSeconds: number | undefined;
-      if (typeof route.duration === 'string') {
-        const parsed = parseInt(route.duration.replace(/s$/i, ''), 10);
-        if (!isNaN(parsed)) {
-          durationSeconds = parsed;
-        }
-      }
+      const distanceMeters =
+        typeof route.summary.distance === 'number'
+          ? Math.round(route.summary.distance)
+          : undefined;
+
+      const durationSeconds =
+        typeof route.summary.duration === 'number'
+          ? Math.round(route.summary.duration)
+          : undefined;
+
+      const encodedPolyline =
+        typeof route.geometry === 'string' ? route.geometry : undefined;
+
+      const coords = encodedPolyline ? decodePolyline(encodedPolyline) : undefined;
 
       const routeResult: RouteComputeResponse = {
         status: 'AVAILABLE',
-        distanceMeters: typeof route.distanceMeters === 'number' ? route.distanceMeters : undefined,
+        distanceMeters,
         durationSeconds,
-        encodedPolyline: route.polyline.encodedPolyline,
+        encodedPolyline,
+        coordinates: coords,
       };
 
       // Store in short-lived memory cache

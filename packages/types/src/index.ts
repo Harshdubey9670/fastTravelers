@@ -434,6 +434,7 @@ export interface RouteComputeResponse {
   distanceMeters?: number;
   durationSeconds?: number;
   encodedPolyline?: string;
+  coordinates?: RouteCoordinate[];
   errorMessage?: string;
 }
 

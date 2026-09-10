@@ -26,8 +26,8 @@ export const ENV = {
   STORAGE_TYPE: (process.env.STORAGE_TYPE || 'LOCAL').toUpperCase(),
   UPLOAD_DIR: process.env.UPLOAD_DIR || path.resolve(process.cwd(), 'data/uploads'),
 
-  // Google Routes API (Rule 3)
-  GOOGLE_ROUTES_API_KEY: process.env.GOOGLE_ROUTES_API_KEY || '',
+  // OpenRouteService API (Step 5)
+  OPENROUTESERVICE_API_KEY: process.env.OPENROUTESERVICE_API_KEY || '',
 
   // Configurable operational limits
   INITIAL_SEARCH_RADIUS_KM: parseFloat(process.env.INITIAL_SEARCH_RADIUS_KM || '3.0'),

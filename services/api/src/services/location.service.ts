@@ -34,7 +34,42 @@ export class LocationService {
       ],
     };
 
-    const places = await LocalPlaceModel.find(filter).limit(limit).lean();
+    let places: any[] = await LocalPlaceModel.find(filter).limit(limit).lean();
+
+    // Step 7: Rural Location Search - LocalPlace DB first, external geocoding as fallback ONLY
+    if (places.length === 0 && ENV.OPENROUTESERVICE_API_KEY) {
+      try {
+        const url = `https://api.openrouteservice.org/geocode/search?api_key=${encodeURIComponent(
+          ENV.OPENROUTESERVICE_API_KEY
+        )}&text=${encodeURIComponent(trimmed)}&boundary.country=IND&size=${limit}`;
+
+        const res = await fetch(url, {
+          headers: { Accept: 'application/json' },
+        });
+
+        if (res.ok) {
+          const data = (await res.json()) as any;
+          if (data && Array.isArray(data.features)) {
+            places = data.features.map((f: any, idx: number) => ({
+              _id: `ors_${f.properties?.id || idx}`,
+              nameEn: f.properties?.name || f.properties?.label || trimmed,
+              nameHi: f.properties?.name || f.properties?.label || trimmed,
+              placeType: 'OTHER',
+              district: f.properties?.county || f.properties?.region || '',
+              tehsil: f.properties?.locality || '',
+              location: {
+                type: 'Point',
+                coordinates: [f.geometry.coordinates[0], f.geometry.coordinates[1]],
+              },
+              isVerified: false,
+              source: 'OPENROUTESERVICE_FALLBACK',
+            }));
+          }
+        }
+      } catch (err: any) {
+        console.warn('[LocationService] OpenRouteService geocoding fallback failed:', err.message);
+      }
+    }
 
     // If user coordinates are provided, compute distance and sort
     if (userLat !== undefined && userLng !== undefined) {
