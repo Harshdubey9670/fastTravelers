@@ -30,9 +30,16 @@
   "license": "UNLICENSED",
   "devDependencies": {
     "@types/node": "^26.4.1",
+    "react-native": "0.74.5",
     "typescript": "^5.4.5"
   },
-  "dependencies": {
-    "expo-location": "~17.0.1"
+  "overrides": {
+    "react-native": "0.74.5",
+    "expo": {
+      "react-native": "0.74.5"
+    },
+    "@expo/vector-icons": {
+      "react-native": "0.74.5"
+    }
   }
 }
