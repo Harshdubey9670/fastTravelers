@@ -29,7 +29,8 @@ export const DriverVerificationTab: React.FC = () => {
         params.verificationStatus = statusFilter;
       }
       const res = await AdminApiClient.getDrivers(params);
-      setDrivers(res.data?.drivers || []);
+      const list = Array.isArray(res.data) ? res.data : (res.data?.drivers || []);
+      setDrivers(list);
     } catch (err: any) {
       console.error('Failed to fetch drivers:', err);
     } finally {
