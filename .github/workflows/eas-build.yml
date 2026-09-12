@@ -1,0 +1,51 @@
+name: EAS Mobile Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: 'EAS Build Profile to trigger'
+        required: true
+        default: 'preview'
+        type: choice
+        options:
+          - development
+          - preview
+          - production
+      platform:
+        description: 'Platform to build'
+        required: true
+        default: 'android'
+        type: choice
+        options:
+          - android
+          - ios
+          - all
+
+jobs:
+  build:
+    name: Trigger EAS Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Setup Expo and EAS CLI
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Install Monorepo Dependencies
+        run: npm ci
+
+      - name: Trigger EAS Build
+        working-directory: ./apps/mobile
+        run: |
+          eas build --profile ${{ github.event.inputs.profile }} --platform ${{ github.event.inputs.platform }} --non-interactive
