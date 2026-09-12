@@ -137,13 +137,14 @@ export class ApiClient {
         return null;
       }
 
-      const json = (await res.json()) as ApiResponse<AuthResponse>;
-      if (json.success && json.data?.tokens?.accessToken) {
+      const json = (await res.json()) as ApiResponse<any>;
+      const tokens = json.data?.tokens || json.data;
+      if (json.success && tokens?.accessToken) {
         this.onTokensRefreshed?.({
-          accessToken: json.data.tokens.accessToken,
-          refreshToken: json.data.tokens.refreshToken,
+          accessToken: tokens.accessToken,
+          refreshToken: tokens.refreshToken,
         });
-        const newToken = json.data.tokens.accessToken;
+        const newToken = tokens.accessToken;
         this.refreshSubscribers.forEach((cb) => cb(newToken));
         this.refreshSubscribers = [];
         return newToken;
