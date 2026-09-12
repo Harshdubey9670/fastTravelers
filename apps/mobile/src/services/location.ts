@@ -67,6 +67,8 @@ class LocationService {
   private watcherSubscription: Location.LocationSubscription | null = null;
   private lastUpdateTime = 0;
   private minIntervalMs = 5000; // Throttle to every 5s min to protect battery
+  private heartbeatTimer: any = null;
+  private lastCoords: UserCoords | null = null;
 
   /**
    * Checks and requests foreground location permissions.
@@ -180,6 +182,46 @@ class LocationService {
       console.log('[LocationService] Background updates fallback to foreground watcher:', bgErr.message);
     }
 
+    // Immediately fetch initial position so driver is visible without waiting for movement
+    try {
+      const initialLoc = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.High,
+      });
+      if (initialLoc) {
+        const heading = typeof initialLoc.coords.heading === 'number' ? initialLoc.coords.heading : undefined;
+        const speed = typeof initialLoc.coords.speed === 'number' ? initialLoc.coords.speed : undefined;
+        const accuracy = typeof initialLoc.coords.accuracy === 'number' ? initialLoc.coords.accuracy : undefined;
+
+        const coords: UserCoords = {
+          latitude: initialLoc.coords.latitude,
+          longitude: initialLoc.coords.longitude,
+          heading,
+          speed,
+          accuracy,
+        };
+        this.lastUpdateTime = Date.now();
+        socketService.updateDriverLocation({
+          latitude: coords.latitude,
+          longitude: coords.longitude,
+          heading,
+          speed,
+          accuracy,
+        });
+        api.updateLocation({
+          latitude: coords.latitude,
+          longitude: coords.longitude,
+          heading,
+          speed,
+          accuracy,
+        }).catch(() => {});
+        if (onCoordsUpdate) {
+          onCoordsUpdate(coords);
+        }
+      }
+    } catch (err) {
+      console.warn('[LocationService] Initial location fetch error:', err);
+    }
+
     try {
       this.watcherSubscription = await Location.watchPositionAsync(
         {
@@ -228,6 +270,30 @@ class LocationService {
     } catch (err) {
       console.warn('[LocationService] Error watching position:', err);
     }
+    // Start stationary heartbeat interval (every 20s) so drivers waiting at stands stay discoverable
+    if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
+    this.heartbeatTimer = setInterval(async () => {
+      try {
+        const coords = this.lastCoords || await this.getCurrentLocation();
+        if (coords) {
+          this.lastCoords = coords;
+          socketService.updateDriverLocation({
+            latitude: coords.latitude,
+            longitude: coords.longitude,
+            heading: coords.heading || undefined,
+            speed: coords.speed || undefined,
+            accuracy: coords.accuracy || undefined,
+          });
+          api.updateLocation({
+            latitude: coords.latitude,
+            longitude: coords.longitude,
+            heading: coords.heading || undefined,
+            speed: coords.speed || undefined,
+            accuracy: coords.accuracy || undefined,
+          }).catch(() => {});
+        }
+      } catch {}
+    }, 20000);
   }
 
   /**
@@ -235,6 +301,11 @@ class LocationService {
    */
   stopDriverLocationTracking() {
     onCoordsUpdateCallback = null;
+
+    if (this.heartbeatTimer) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
+    }
 
     if (this.watcherSubscription) {
       this.watcherSubscription.remove();
