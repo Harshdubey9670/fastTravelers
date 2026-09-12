@@ -48,7 +48,10 @@ router.post('/refresh', async (req, res, next) => {
     const tokens = await authService.refreshTokens(validated.refreshToken);
     return res.status(200).json({
       success: true,
-      data: tokens,
+      data: {
+        ...tokens,
+        tokens,
+      },
     });
   } catch (err) {
     next(err);
