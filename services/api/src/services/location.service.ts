@@ -108,7 +108,7 @@ export class LocationService {
     maxDrivers = ENV.MAX_DRIVERS_CONTACTED_PER_RIDE
   ): Promise<{ drivers: NearbyDriverMatch[]; radiusUsedKm: number }> {
     let currentRadiusKm = initialRadiusKm;
-    const staleThreshold = new Date(Date.now() - 120000); // 2 minutes staleness
+    const staleThreshold = new Date(Date.now() - 600000); // 10 minutes staleness for stationary drivers waiting at stands
 
     while (currentRadiusKm <= maxRadiusKm) {
       const radiusInRadians = currentRadiusKm / 6371; // Earth radius in km
