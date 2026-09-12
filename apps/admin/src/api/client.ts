@@ -63,8 +63,9 @@ export class AdminApiClient {
       method: 'POST',
       body: JSON.stringify({ phone, otp }),
     });
-    if (res.data?.token) {
-      this.setAuth(res.data.token, res.data.user);
+    const token = res.data?.tokens?.accessToken || res.data?.token;
+    if (token) {
+      this.setAuth(token, res.data.user);
     }
     return res;
   }
@@ -86,7 +87,7 @@ export class AdminApiClient {
   static async verifyDriver(driverId: string, status: 'APPROVED' | 'REJECTED', rejectionReason?: string) {
     return this.request(`/admin/drivers/${driverId}/verify`, {
       method: 'PATCH',
-      body: JSON.stringify({ status, rejectionReason }),
+      body: JSON.stringify({ status, verificationNotes: rejectionReason }),
     });
   }
 
