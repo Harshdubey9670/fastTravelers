@@ -53,7 +53,8 @@ export function App() {
     const token = AdminApiClient.getToken();
     if (!user || !token) return;
 
-    const s = io('http://localhost:5001', {
+    const wsUrl = (import.meta as any).env?.VITE_WS_URL || 'http://localhost:5050';
+    const s = io(wsUrl, {
       auth: { token },
       transports: ['websocket', 'polling'],
       reconnectionAttempts: 10,
@@ -121,8 +122,8 @@ export function App() {
       <Sidebar
         activeTab={activeTab}
         setActiveTab={setActiveTab}
-        pendingDriverCount={stats?.drivers?.pendingVerification || 0}
-        activeRideCount={stats?.rides?.active || 0}
+        pendingDriverCount={stats?.drivers?.pendingVerification || stats?.pendingDrivers || 0}
+        activeRideCount={stats?.rides?.active || stats?.activeRides || 0}
         user={user}
         onLogout={handleLogout}
       />
