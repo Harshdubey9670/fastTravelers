@@ -146,14 +146,25 @@ export class SocketService {
           { driverId: socket.driverId },
           {
             $set: {
-              'location.coordinates': [longitude, latitude],
+              location: {
+                type: 'Point',
+                coordinates: [longitude, latitude],
+              },
+              isOnline: true,
               heading: typeof heading === 'number' ? heading : undefined,
               speed: typeof speed === 'number' ? speed : undefined,
               accuracy: typeof accuracy === 'number' ? accuracy : undefined,
               updatedAt: new Date(ts),
             },
-          }
-        ).catch(() => {});
+            $setOnInsert: {
+              driverId: socket.driverId,
+              availabilityStatus: 'AVAILABLE',
+            },
+          },
+          { upsert: true }
+        ).catch((err) => {
+          console.error('[Socket] DriverLocation upsert error:', err);
+        });
 
         // Find active ride belonging to this driver
         const activeRide = await RideModel.findOne({
