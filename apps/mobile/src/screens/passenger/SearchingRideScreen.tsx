@@ -69,6 +69,15 @@ export const SearchingRideScreen: React.FC<SearchingRideScreenProps> = ({
     onCancelled();
   };
 
+  const handleTryAgain = async () => {
+    try {
+      await cancelRide('Search expired / retry');
+    } catch {
+      // Ignored if already expired or cancelled
+    }
+    onCancelled();
+  };
+
   const isNoDriver = activeRide?.status === 'NO_DRIVER_FOUND' || timeLeft === 0;
 
   return (
@@ -144,7 +153,7 @@ export const SearchingRideScreen: React.FC<SearchingRideScreenProps> = ({
           <Button
             title={t.tryAgain}
             variant="accent"
-            onPress={onCancelled}
+            onPress={handleTryAgain}
             size="large"
             style={{ width: '100%', marginTop: 20 }}
           />
